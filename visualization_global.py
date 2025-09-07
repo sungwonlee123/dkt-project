@@ -155,9 +155,24 @@ def visualize_global_attention_patterns(model, dataset, sequence_length=100):
     # 문제 유형별 등장 횟수 계산
     problem_freq = {i: problem_correct_count[i]['total'] for i in range(dataset.num_q)}
     
+    # 통계 출력
+    total_interactions = sum(problem_freq.values())
+    total_students = len(set(dataset.u_list))
+    print(f"\n전체 통계:")
+    print(f"총 학생 수: {total_students}명")
+    print(f"총 상호작용 수: {total_interactions}회")
+    print(f"학생당 평균 문제 풀이 수: {total_interactions/total_students:.1f}회")
+    
     # 가장 많이 등장하는 상위 15개 문제 유형 선택
     top_problems = sorted(problem_freq.items(), key=lambda x: x[1], reverse=True)[:15]
     top_problem_indices = [idx for idx, _ in top_problems]
+    
+    print("\n상위 15개 문제 통계:")
+    for idx, freq in top_problems:
+        correct = problem_correct_count[idx]['correct']
+        total = problem_correct_count[idx]['total']
+        accuracy = correct / total if total > 0 else 0
+        print(f"문제 {idx}: {total}회 출현 (전체의 {total/total_interactions*100:.1f}%), 정답률 {accuracy*100:.1f}%")
     
     # 선택된 문제들에 대한 attention matrix 추출
     attention_matrix = np.divide(

@@ -109,4 +109,4 @@ with torch.no_grad():
     outputs = model(inputs)
     pred = (outputs[:, :, 0] if outputs.shape[2] > 1 else outputs.squeeze(-1)) > 0.5
     print("EdNet 예측 결과:", pred)
-   ㅁㄴㅇㄹ
+   

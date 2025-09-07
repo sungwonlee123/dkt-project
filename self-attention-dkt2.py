@@ -440,18 +440,7 @@ class SAKT(Module):
                         graph_fig = visualize_global_relationship_graph(self, dataset)
                         graph_fig.savefig('attention_graph_global_dkt2.png', bbox_inches='tight', dpi=300)
                         
-                        # 기존 시각화들도 유지
-                        att_fig1, att_fig2 = visualize_attention_patterns(self, dataset)
-                        att_fig1.savefig('attention_heatmap_dkt2.png')
-                        att_fig2.savefig('attention_graph_dkt2.png')
-                        
-                        # 학습 진행 상황 시각화
-                        prog_fig = plot_learning_progress(self, dataset)
-                        prog_fig.savefig('learning_progress_dkt2.png')
-                        
-                        # 스킬 숙련도 분석
-                        skill_fig = analyze_skill_mastery(self, dataset)
-                        skill_fig.savefig('skill_mastery_dkt2.png')
+                        # 전체 attention 분석만 실행
 
 batch_size = 256
 num_epochs = 30  # 원래 30회로 복구

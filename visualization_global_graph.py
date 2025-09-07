@@ -190,9 +190,9 @@ def visualize_global_relationship_graph(model, dataset, top_n=15):
         node_labels[node_id] = label
         node_colors[node_id] = plt.cm.RdYlGn(accuracy)  # 정답률에 따른 색상
     
-    # 상위 30% 엣지만 표시 (임계값 설정)
+    # attention 값이 0.3 이상인 연결만 표시
     flat_attention = attention_matrix.flatten()
-    threshold = np.percentile(flat_attention[flat_attention > 0], 70)
+    threshold = 0.3  # 절대값 기준으로 설정
     
     edge_weights = []
     edge_colors = []
@@ -206,27 +206,37 @@ def visualize_global_relationship_graph(model, dataset, top_n=15):
                 weight = attention_matrix[i][j]
                 
                 G.add_edge(source_id, target_id, weight=weight)
-                edge_weights.append(weight * 3)  # 시각화를 위해 가중치 조정
-                edge_colors.append(plt.cm.Reds(weight))
+                # 약한 연결도 보이도록 가중치 조정
+                scaled_weight = (weight - threshold) / (attention_matrix.max() - threshold)
+                
+                # 모든 연결의 두께를 강도에 비례하도록 설정
+                edge_weights.append(max(0.5, scaled_weight * 3))  # 최소 두께 0.5 보장
+                
+                # 연결 강도에 따른 색상 지정
+                if weight < 0.5:
+                    edge_colors.append(plt.cm.Greys(0.5))  # 0.3~0.5는 회색
+                else:
+                    edge_colors.append(plt.cm.Reds(scaled_weight))  # 0.5 이상은 빨간색 계열
     
     # 그래프 레이아웃 설정
     pos = nx.spring_layout(G, k=2, iterations=50)
     
-    # 그래프 그리기
+    # 그래프 그리기 - 약한 연결도 보이도록 설정 수정
     nx.draw(G, pos,
             with_labels=True,
             labels=node_labels,
             node_color=[node_colors[node] for node in G.nodes()],
-            node_size=5000,
-            font_size=8,
+            node_size=5500,  # 노드 크기 조정
+            font_size=9,
             font_weight='bold',
             font_family='AppleGothic',
             width=edge_weights,
             edge_color=[color for color in edge_colors],
             arrows=True,
-            arrowsize=20,
+            arrowsize=15,    # 화살표 크기 줄임
             ax=ax,
-            connectionstyle="arc3,rad=0.2")
+            connectionstyle="arc3,rad=0.1",  # 곡선 정도 줄임
+            alpha=0.8)       # 투명도 조정
     
     # 제목 설정
     plt.title('전체 학생 데이터 기반 문제 간 관계 그래프', pad=20, fontsize=14)
