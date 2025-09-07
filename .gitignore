@@ -1,0 +1,18 @@
+# Data files
+skill_builder_data.csv
+EdNet-KT1.zip
+ednet_merged.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
