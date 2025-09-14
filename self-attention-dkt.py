@@ -1,3 +1,25 @@
+"""
+DKT (Deep Knowledge Tracing) Model Variants:
+
+- self-attention-dkt.py (현재 모델): 
+    - DKT 기본 구현 + Self-Attention
+    - 난이도, 시도 횟수, 풀이 시간 feature 포함
+    - Z-score 정규화 적용
+    - 기본적인 데이터 전처리와 모델 구조 구현
+
+이후 발전된 모델들:
+- self-attention-dkt2.py: 
+    - 정적/동적 난이도 구분
+    - 문제 풀이 수 기반 가중치 적용
+    - 향상된 시각화 기능
+
+- self-attention-dkt3.py: 
+    - 다중 feature 통합 개선
+    - 전역 attention 패턴 분석
+    - 스킬 숙련도 분석 추가
+    - 가장 발전된 형태의 모델
+"""
+
 import os
 import argparse
 import json

@@ -1,3 +1,16 @@
+"""
+DKT (Deep Knowledge Tracing) Model Variants:
+
+- dkt-old.py (현재 모델): 
+    - 기본 DKT 모델 구현
+    - 문제(skill)와 응답(correct/incorrect)만을 입력으로 사용
+    - Self-Attention 메커니즘 적용
+    - 기본적인 시각화 기능 (attention 패턴, 관계 그래프)
+
+- dkt2.py: 난이도 feature 추가 모델
+- dkt3.py: 다중 feature (난이도, 시도 횟수, 풀이 시간) 통합 모델
+"""
+
 import os
 import argparse
 import json

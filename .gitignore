@@ -2,6 +2,8 @@
 skill_builder_data.csv
 EdNet-KT1.zip
 ednet_merged.csv
+aihub/
+processed_dkt_data.csv  # 새로 생성된 전처리 데이터도 제외
 
 # Python
 __pycache__/
