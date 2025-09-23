@@ -3,6 +3,7 @@ import networkx as nx
 import torch
 import numpy as np
 from tqdm import tqdm
+import inspect
 
 def visualize_global_relationship_graph(model, dataset, top_n=15):
     """
@@ -24,30 +25,40 @@ def visualize_global_relationship_graph(model, dataset, top_n=15):
     problem_correct_count = {i: {'correct': 0, 'total': 0} for i in range(dataset.num_q)}
     
     # 전체 시퀀스에 대해 attention 패턴 분석
-    for i in tqdm(range(len(dataset.q_seqs)), desc="Processing sequences"):
+    seq_lens = [
+        len(dataset.q_seqs),
+        len(dataset.r_seqs)
+    ]
+    if hasattr(dataset, 'd_seqs'):
+        seq_lens.append(len(dataset.d_seqs))
+    if hasattr(dataset, 's_seqs'):
+        seq_lens.append(len(dataset.s_seqs))
+    if hasattr(dataset, 'a_seqs'):
+        seq_lens.append(len(dataset.a_seqs))
+    if hasattr(dataset, 't_seqs'):
+        seq_lens.append(len(dataset.t_seqs))
+    min_seq_len = min(seq_lens)
+    for i in tqdm(range(min_seq_len), desc="Processing sequences"):
         # 시퀀스 준비 - 원래 길이 유지
         q_seq = dataset.q_seqs[i]
         r_seq = dataset.r_seqs[i]
-        
-        # 추가 feature가 있는 경우에만 가져오기
         has_diff = hasattr(dataset, 'd_seqs')
         has_static_diff = hasattr(dataset, 's_seqs')
         has_attempts = hasattr(dataset, 'a_seqs')
         has_time = hasattr(dataset, 't_seqs')
-        
         d_seq = dataset.d_seqs[i] if has_diff else np.zeros_like(q_seq)
-        s_seq = dataset.s_seqs[i] if has_static_diff else d_seq  # 정적 난이도가 없으면 동적 난이도 사용
+        s_seq = dataset.s_seqs[i] if has_static_diff else d_seq
         a_seq = dataset.a_seqs[i] if has_attempts else np.zeros_like(q_seq)
         t_seq = dataset.t_seqs[i] if has_time else np.zeros_like(q_seq)
-        
-        # 패딩된 부분 제거
+        # 패딩된 부분 제거 및 길이 맞추기
         valid_indices = q_seq != pad_val
-        q_seq = q_seq[valid_indices]
-        r_seq = r_seq[valid_indices]
-        d_seq = d_seq[valid_indices]
-        s_seq = s_seq[valid_indices]
-        a_seq = a_seq[valid_indices]
-        t_seq = t_seq[valid_indices]
+        min_len = min(len(q_seq), len(r_seq), len(d_seq), len(s_seq), len(a_seq), len(t_seq), len(valid_indices))
+        q_seq = q_seq[:min_len][valid_indices[:min_len]]
+        r_seq = r_seq[:min_len][valid_indices[:min_len]]
+        d_seq = d_seq[:min_len][valid_indices[:min_len]]
+        s_seq = s_seq[:min_len][valid_indices[:min_len]]
+        a_seq = a_seq[:min_len][valid_indices[:min_len]]
+        t_seq = t_seq[:min_len][valid_indices[:min_len]]
         
         # 정답률 계산을 위한 카운트
         for q, r in zip(q_seq, r_seq):
@@ -89,22 +100,36 @@ def visualize_global_relationship_graph(model, dataset, top_n=15):
             a = torch.FloatTensor(a_pad).unsqueeze(0) if has_attempts else None
             t = torch.FloatTensor(t_pad).unsqueeze(0) if has_time else None
             
+            # 모델의 forward 메소드 시그니처를 동적으로 확인하여 적절한 파라미터로 호출
             try:
-                # DKT2 모델의 경우
-                if hasattr(model, 'feature_projection'):  # DKT2 모델의 특징
+                # forward 메소드의 파라미터 확인
+                forward_signature = inspect.signature(model.forward)
+                param_names = list(forward_signature.parameters.keys())
+                
+                # 파라미터 개수와 이름에 따라 적절히 호출
+                if len(param_names) >= 7:  # DKT2: (q, r, qry, d_diff, s_diff, att, time)
+                    # None 체크 및 기본값 할당
+                    d = d if d is not None else torch.zeros_like(q, dtype=torch.float32)
+                    s = s if s is not None else torch.zeros_like(q, dtype=torch.float32)
+                    a = a if a is not None else torch.zeros_like(q, dtype=torch.float32)
+                    t = t if t is not None else torch.zeros_like(q, dtype=torch.float32)
                     _, curr_attention = model(q, r, q, d, s, a, t)
-                # DKT3 모델의 경우
-                elif has_diff and has_attempts and has_time:
-                    _, curr_attention = model(q, r, q, d, a, t)
-                # 기본 SAKT 모델(DKT-old)의 경우
+                elif 'd_diff' in param_names or len(param_names) == 4:
+                    # SLAM with difficulty (d_diff 파라미터 있음)
+                    d = d if d is not None else torch.zeros_like(q, dtype=torch.float32)
+                    _, curr_attention = model(q, r, q, d)
                 else:
+                    # SAKT/DKT-old (기본 모델: q, r, qry)
                     _, curr_attention = model(q, r, q)
-            except TypeError as e:
-                print(f"모델 호출 에러: {e}, 기본 파라미터로 시도합니다.")
-                # 항상 동작하는 기본 호출
-                _, curr_attention = model(q, r, q)
+            except (TypeError, RuntimeError) as e:
+                print(f"모델 호출 에러: {e}, 기본 파라미터로 재시도합니다.")
+                try:
+                    _, curr_attention = model(q, r, q)
+                except Exception as e2:
+                    print(f"기본 모델 호출 실패: {e2}")
+                    continue
             
-            curr_attention = curr_attention[0].cpu().numpy()
+            curr_attention = curr_attention[0].cpu().detach().numpy()
             
             # head 별 평균 계산
             if len(curr_attention.shape) == 3:

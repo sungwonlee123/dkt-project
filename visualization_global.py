@@ -5,8 +5,9 @@ import torch
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
+import inspect
 
-def visualize_global_attention_patterns(model, dataset, sequence_length=100):
+def visualize_global_attention_patterns(model, dataset, sequence_length=100, return_matrix=False):
     """
     전체 데이터셋에 대한 Attention 패턴을 시각화하는 함수
     Args:
@@ -31,30 +32,65 @@ def visualize_global_attention_patterns(model, dataset, sequence_length=100):
     problem_correct_count = {i: {'correct': 0, 'total': 0} for i in range(dataset.num_q)}
     
     # 전체 시퀀스에 대해 attention 패턴 분석
-    for i in tqdm(range(len(dataset.q_seqs)), desc="Processing sequences"):
+    seq_lens = [
+        len(dataset.q_seqs),
+        len(dataset.r_seqs)
+    ]
+    if hasattr(dataset, 'd_seqs'):
+        seq_lens.append(len(dataset.d_seqs))
+    if hasattr(dataset, 's_seqs'):
+        seq_lens.append(len(dataset.s_seqs))
+    if hasattr(dataset, 'a_seqs'):
+        seq_lens.append(len(dataset.a_seqs))
+    if hasattr(dataset, 't_seqs'):
+        seq_lens.append(len(dataset.t_seqs))
+    min_seq_len = min(seq_lens)
+    for i in tqdm(range(min_seq_len), desc="Processing sequences"):
         # 시퀀스 준비 - 원래 길이 유지
         q_seq = dataset.q_seqs[i]
         r_seq = dataset.r_seqs[i]
-        
-        # 추가 feature가 있는 경우에만 가져오기
         has_diff = hasattr(dataset, 'd_seqs')
         has_static_diff = hasattr(dataset, 's_seqs')
         has_attempts = hasattr(dataset, 'a_seqs')
         has_time = hasattr(dataset, 't_seqs')
         
+        # 디버깅 출력 (필요시 주석 해제)
+        # print(f"DEBUG: Dataset attributes - d_seqs: {has_diff}, s_seqs: {has_static_diff}, a_seqs: {has_attempts}, t_seqs: {has_time}")
+        
         d_seq = dataset.d_seqs[i] if has_diff else np.zeros_like(q_seq)
-        s_seq = dataset.s_seqs[i] if has_static_diff else d_seq  # 정적 난이도가 없으면 동적 난이도 사용
+        s_seq = dataset.s_seqs[i] if has_static_diff else d_seq
         a_seq = dataset.a_seqs[i] if has_attempts else np.zeros_like(q_seq)
         t_seq = dataset.t_seqs[i] if has_time else np.zeros_like(q_seq)
-        
         # 패딩된 부분 제거
         valid_indices = q_seq != pad_val
-        q_seq = q_seq[valid_indices]
-        r_seq = r_seq[valid_indices]
-        d_seq = d_seq[valid_indices]
-        s_seq = s_seq[valid_indices]
-        a_seq = a_seq[valid_indices]
-        t_seq = t_seq[valid_indices]
+        seq_len = valid_indices.sum()
+        # 모든 feature 시퀀스 길이 맞추기 (불일치 시 최소 길이로 자름)
+        min_len = min(len(q_seq), len(r_seq), len(d_seq), len(s_seq), len(a_seq), len(t_seq), len(valid_indices))
+        q_seq = q_seq[:min_len][valid_indices[:min_len]]
+        r_seq = r_seq[:min_len][valid_indices[:min_len]]
+        d_seq = d_seq[:min_len][valid_indices[:min_len]]
+        s_seq = s_seq[:min_len][valid_indices[:min_len]]
+        a_seq = a_seq[:min_len][valid_indices[:min_len]]
+        t_seq = t_seq[:min_len][valid_indices[:min_len]]
+        # If any sequence is shorter than window_size, pad it
+        window_size = min(10, seq_len)
+        if seq_len < 2:
+            continue
+        if seq_len < window_size:
+            pad_len = window_size - seq_len
+            q_seq = np.pad(q_seq, (0, pad_len), constant_values=0)
+            r_seq = np.pad(r_seq, (0, pad_len), constant_values=0)
+            d_seq = np.pad(d_seq, (0, pad_len), constant_values=0.0)
+            s_seq = np.pad(s_seq, (0, pad_len), constant_values=0.0)
+            a_seq = np.pad(a_seq, (0, pad_len), constant_values=0.0)
+            t_seq = np.pad(t_seq, (0, pad_len), constant_values=0.0)
+        else:
+            q_seq = q_seq[:window_size]
+            r_seq = r_seq[:window_size]
+            d_seq = d_seq[:window_size]
+            s_seq = s_seq[:window_size]
+            a_seq = a_seq[:window_size]
+            t_seq = t_seq[:window_size]
         
         # 정답률 계산을 위한 카운트
         for q, r in zip(q_seq, r_seq):
@@ -119,22 +155,50 @@ def visualize_global_attention_patterns(model, dataset, sequence_length=100):
             q = q.long()
             r = r.long()
             
+            # 모델의 forward 메소드 시그니처를 동적으로 확인하여 적절한 파라미터로 호출
             try:
-                # DKT2 모델의 경우
-                if hasattr(model, 'feature_projection'):  # DKT2 모델의 특징
+                # forward 메소드의 파라미터 확인
+                forward_signature = inspect.signature(model.forward)
+                param_names = list(forward_signature.parameters.keys())
+                
+                # print(f"DEBUG: Model parameters: {param_names}, count: {len(param_names)}")
+                
+                # 파라미터 개수에 따라 적절히 호출 (복잡한 모델부터 체크)
+                if len(param_names) >= 7:  # q, r, qry, d_diff, s_diff, att, time
+                    # DKT2 (다중 특성) - 7개 파라미터
+                    # print("DEBUG: Using DKT2 7-parameter call")
+                    # None 체크 및 기본값 할당
+                    d = d if d is not None else torch.zeros_like(q, dtype=torch.float32)
+                    s = s if s is not None else torch.zeros_like(q, dtype=torch.float32)
+                    a = a if a is not None else torch.zeros_like(q, dtype=torch.float32)
+                    t = t if t is not None else torch.zeros_like(q, dtype=torch.float32)
                     _, curr_attention = model(q, r, q, d, s, a, t)
-                # DKT3 모델의 경우
-                elif has_diff and has_attempts and has_time:
+                elif len(param_names) >= 6:  # q, r, qry, d, a, t
+                    # DKT3 - 6개 파라미터
+                    # print("DEBUG: Using DKT3 6-parameter call")
                     _, curr_attention = model(q, r, q, d, a, t)
-                # 기본 SAKT 모델(DKT-old)의 경우
+                elif 'd_diff' in param_names and len(param_names) == 4:
+                    # SLAM with difficulty (d_diff 파라미터 있음) - 4개 파라미터
+                    # print("DEBUG: Using SLAM 4-parameter call")
+                    _, curr_attention = model(q, r, q, d)
                 else:
+                    # SAKT/DKT-old (기본 모델: q, r, qry) - 3개 파라미터
+                    # print("DEBUG: Using basic 3-parameter call")
                     _, curr_attention = model(q, r, q)
-            except TypeError as e:
-                print(f"모델 호출 에러: {e}, 기본 파라미터로 시도합니다.")
-                # 항상 동작하는 기본 호출
-                _, curr_attention = model(q, r, q)
+            except (TypeError, RuntimeError) as e:
+                # DKT2의 경우 에러 로그를 간소화 (너무 많은 출력 방지)
+                if len(param_names) >= 7:
+                    pass  # DKT2는 에러 출력 생략
+                else:
+                    print(f"모델 호출 에러: {e}")
+                    print("기본 파라미터로 재시도합니다.")
+                try:
+                    _, curr_attention = model(q, r, q)
+                except Exception as e2:
+                    print(f"기본 모델 호출 실패: {e2}")
+                    continue
             
-            curr_attention = curr_attention[0].cpu().numpy() 
+            curr_attention = curr_attention[0].cpu().detach().numpy() 
             
             # head 별 평균 계산
             if len(curr_attention.shape) == 3:
@@ -175,16 +239,42 @@ def visualize_global_attention_patterns(model, dataset, sequence_length=100):
         print(f"문제 {idx}: {total}회 출현 (전체의 {total/total_interactions*100:.1f}%), 정답률 {accuracy*100:.1f}%")
     
     # 선택된 문제들에 대한 attention matrix 추출
+    attention_sum_subset = problem_attention_sum[top_problem_indices][:, top_problem_indices]
+    attention_count_subset = problem_attention_count[top_problem_indices][:, top_problem_indices]
+    
     attention_matrix = np.divide(
-        problem_attention_sum[top_problem_indices][:, top_problem_indices],
-        problem_attention_count[top_problem_indices][:, top_problem_indices],
+        attention_sum_subset,
+        attention_count_subset,
         out=np.zeros((len(top_problem_indices), len(top_problem_indices))),
-        where=problem_attention_count[top_problem_indices][:, top_problem_indices]!=0
+        where=attention_count_subset!=0
     )
+    
+    # 정규화 전 실제 값 확인
+    print(f"\n정규화 전 실제 어텐션 값 분석:")
+    print(f"최솟값: {attention_matrix.min():.6f}")
+    print(f"최댓값: {attention_matrix.max():.6f}")
+    print(f"평균값: {attention_matrix.mean():.6f}")
+    print(f"표준편차: {attention_matrix.std():.6f}")
+    print(f"중앙값: {np.median(attention_matrix):.6f}")
+    
+    # 실제 값 분포 확인
+    non_zero_values = attention_matrix[attention_matrix > 0]
+    if len(non_zero_values) > 0:
+        print(f"0이 아닌 값들의 평균: {non_zero_values.mean():.6f}")
+        print(f"0이 아닌 값들의 최솟값: {non_zero_values.min():.6f}")
+        print(f"0이 아닌 값들의 최댓값: {non_zero_values.max():.6f}")
+    
+    # 원본 값 저장 (나중에 참고용)
+    original_attention_matrix = attention_matrix.copy()
     
     # 정규화
     if attention_matrix.max() != attention_matrix.min():
         attention_matrix = (attention_matrix - attention_matrix.min()) / (attention_matrix.max() - attention_matrix.min())
+    
+    print(f"\n정규화 후:")
+    print(f"최솟값: {attention_matrix.min():.6f}")
+    print(f"최댓값: {attention_matrix.max():.6f}")
+    print(f"평균값: {attention_matrix.mean():.6f}")
     
     # 문제 유형별 정답률 계산
     for stats in problem_stats.values():
@@ -237,6 +327,26 @@ def visualize_global_attention_patterns(model, dataset, sequence_length=100):
         'Multiplication': '곱셈',
         'Division': '나눗셈',
         'Addition': '덧셈',
+        # SLAM 데이터용 추가 (듀오링고 학습 방식)
+        'is_reverse_translate': '문장 역번역',
+        'I_reverse_translate': '인칭대명사 역번역',
+        'I_listen': '인칭대명사 듣기',
+        'The_reverse_translate': '정관사 역번역',
+        'the_reverse_translate': '정관사 역번역',  # 소문자 버전 추가
+        'I_reverse_tap': '인칭대명사 단어선택',
+        'my_reverse_translate': '소유대명사 역번역',
+        'is_reverse_tap': '동사 단어선택',
+        'the_reverse_tap': '정관사 단어선택',  # 소문자 버전
+        'The_reverse_tap': '정관사 단어선택',  # 대문자 버전 추가
+        'is_listen': '동사 듣기',  # 추가된 번역
+        'The_listen': '정관사 듣기',
+        'a_reverse_translate': '부정관사 역번역',
+        'and_reverse_translate': '접속사 역번역',
+        'are_reverse_translate': '복수동사 역번역',
+        'my_listen': '소유대명사 듣기',
+        'reverse_translate': '일반 역번역',
+        'reverse_tap': '단어선택 번역',
+        'listen': '듣기 연습',
         'Subtraction': '뺄셈',
         'Decimals': '소수',
         'Fractions': '분수',
@@ -267,13 +377,13 @@ def visualize_global_attention_patterns(model, dataset, sequence_length=100):
             label = f"{kor_name}\n(데이터 없음)"
         labels.append(label)
     
-    # 히트맵 그리기
+    # 히트맵 그리기 - 더 정밀한 표시를 위해 fmt 변경
     sns.heatmap(attention_matrix, 
                 xticklabels=labels,
                 yticklabels=labels,
                 cmap='YlOrRd',
                 annot=True,
-                fmt='.2f',
+                fmt='.3f',  # 소수점 3자리까지 표시
                 square=True,
                 cbar_kws={'label': '영향력 점수'},
                 ax=ax)
@@ -321,4 +431,7 @@ def visualize_global_attention_patterns(model, dataset, sequence_length=100):
                          edgecolor='lightgray',
                          boxstyle='round,pad=1'))
     
-    return fig
+    if return_matrix:
+        return fig, attention_matrix, original_attention_matrix, labels
+    else:
+        return fig

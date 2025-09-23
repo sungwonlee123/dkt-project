@@ -29,6 +29,16 @@ import random
 
 from torch.utils.data import Dataset
 
+# visualization 모듈들 import
+try:
+    from visualization_skillbuilder import visualize_skillbuilder_attention_patterns
+    from visualization_skillbuilder_enhanced import visualize_skillbuilder_attention_patterns_enhanced
+    from visualization_global_graph import visualize_global_relationship_graph
+    VISUALIZATION_AVAILABLE = True
+except ImportError as e:
+    print(f"Visualization modules not available: {e}")
+    VISUALIZATION_AVAILABLE = False
+
 DATASET_DIR = ""
 
 class Preprocessor(Dataset):
@@ -303,8 +313,9 @@ from torch.nn.init import kaiming_normal_
 from torch.nn.functional import binary_cross_entropy
 from sklearn import metrics
 from visualization import visualize_attention_patterns, plot_learning_progress, analyze_skill_mastery
-from visualization_global import visualize_global_attention_patterns
+# Moved to try-except block above
 from visualization_global_graph import visualize_global_relationship_graph
+# Moved to try-except block above
 
 
 class SAKT(Module):
@@ -400,14 +411,23 @@ class SAKT(Module):
     def train_model(
         self, train_loader, test_loader, num_epochs, opt
     ):
-
+        from tqdm import tqdm
         max_auc = 0
+        device = next(self.parameters()).device  # 모델의 디바이스 가져오기
 
         for i in range(1, num_epochs + 1):
             loss_mean = []
 
-            for data in train_loader:
+            print(f"Epoch {i} training...")
+            for data in tqdm(train_loader, desc=f"Epoch {i}"):
                 q, r, d, s, a, t, qshft, rshft, dshft, sshft, ashft, tshft, m = data
+                
+                # 데이터를 GPU로 이동
+                q, r, d = q.to(device), r.to(device), d.to(device)
+                s, a, t = s.to(device), a.to(device), t.to(device)
+                qshft, rshft, dshft = qshft.to(device), rshft.to(device), dshft.to(device)
+                sshft, ashft, tshft = sshft.to(device), ashft.to(device), tshft.to(device)
+                m = m.to(device)
 
                 self.train()
 
@@ -425,6 +445,13 @@ class SAKT(Module):
             with torch.no_grad():
                 for data in test_loader:
                     q, r, d, s, a, t, qshft, rshft, dshft, sshft, ashft, tshft, m = data
+                    
+                    # 검증 데이터도 GPU로 이동
+                    q, r, d = q.to(device), r.to(device), d.to(device)
+                    s, a, t = s.to(device), a.to(device), t.to(device)
+                    qshft, rshft, dshft = qshft.to(device), rshft.to(device), dshft.to(device)
+                    sshft, ashft, tshft = sshft.to(device), ashft.to(device), tshft.to(device)
+                    m = m.to(device)
 
                     self.eval()
 
@@ -444,22 +471,44 @@ class SAKT(Module):
                     )
                     
                     # 마지막 에포크에서 시각화 수행
-                    if i == num_epochs:
-                        # 전체 데이터 기반 Attention 패턴 시각화 (히트맵)
-                        att_fig = visualize_global_attention_patterns(self, dataset)
-                        att_fig.savefig('attention_heatmap_global_dkt2.png', bbox_inches='tight', dpi=300)
-                        
-                        # 전체 데이터 기반 관계 그래프
-                        graph_fig = visualize_global_relationship_graph(self, dataset)
-                        graph_fig.savefig('attention_graph_global_dkt2.png', bbox_inches='tight', dpi=300)
+                    if i == num_epochs and VISUALIZATION_AVAILABLE:
+                        try:
+                            # 기존 전체 데이터 기반 Attention 패턴 시각화 (히트맵)
+                            att_fig, basic_attention_matrix, original_attention_matrix, problem_labels = visualize_skillbuilder_attention_patterns(self, dataset, return_matrix=True)
+                            att_fig.savefig('attention_heatmap_global_dkt2_basic.png', bbox_inches='tight', dpi=300)
+                            print("Basic global attention visualization saved")
+                            
+                            # 개선된 전체 데이터 기반 Attention 패턴 시각화 (Basic 매트릭스 사용)
+                            enhanced_fig, original_matrix, normalized_matrix = visualize_skillbuilder_attention_patterns_enhanced(self, dataset, basic_matrix=basic_attention_matrix, original_matrix=original_attention_matrix, problem_names=problem_labels)
+                            enhanced_fig.savefig('attention_heatmap_global_dkt2_enhanced.png', bbox_inches='tight', dpi=300)
+                            print("Enhanced global attention visualization saved")
+                            
+                            # 전체 데이터 기반 관계 그래프 시각화
+                            graph_fig = visualize_global_relationship_graph(self, dataset)
+                            graph_fig.savefig('attention_graph_global_dkt2.png', bbox_inches='tight', dpi=300)
+                            print("Global relationship graph saved")
+                            
+                            print("All visualizations completed!")
+                            
+                        except Exception as e:
+                            print(f"Visualization error: {e}")
+                            import traceback
+                            traceback.print_exc()
+                    elif i == num_epochs:
+                        print("Visualization modules not available, skipping visualization")
                         
                         # 전체 attention 분석만 실행
 
-batch_size = 256
-num_epochs = 30  # 원래 30회로 복구
+batch_size = 512  # GPU 메모리에 맞게 증가
+num_epochs = 1  # 테스트를 위해 1로 변경
 learning_rate = 0.001
 
-model = SAKT(dataset.num_q, n=100, d=100, num_attn_heads=5, dropout=0.2).to("cpu")
+# CPU 전용 모드 (안정성 우선)
+device = torch.device("cpu")
+print("⚡ CPU 전용 모드로 실행됨 (안정성 우선)")
+print(f"사용 디바이스: {device}")
+
+model = SAKT(dataset.num_q, n=100, d=100, num_attn_heads=5, dropout=0.2).to(device)
 
 opt = Adam(model.parameters(), learning_rate)
 

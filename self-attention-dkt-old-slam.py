@@ -1,14 +1,5 @@
 """
-DKT (Deep Knowledge Tracing) Model Variants:
-
-- dkt-old.py (현재 모델): 
-    - 기본 DKT 모델 구현
-    - 문제(skill)와 응답(correct/incorrect)만을 입력으로 사용
-    - Self-Attention 메커니즘 적용
-    - 기본적인 시각화 기능 (attention 패턴, 관계 그래프)
-
-- dkt2.py: 난이도 feature 추가 모델
-- dkt3.py: 다중 feature (난이도, 시도 횟수, 풀이 시간) 통합 모델
+DKT (Deep Knowledge Tracing) Model with Self-Attention for Duolingo SLAM Dataset
 """
 
 import os
@@ -25,21 +16,14 @@ import pandas as pd
 import random
 from torch.utils.data import Dataset
 
-DATASET_DIR = ""
-
 class Preprocessor(Dataset):
-    def __init__(self, seq_len, dataset_dir=DATASET_DIR) -> None:
+    def __init__(self, seq_len) -> None:
         super().__init__()
-
-        self.dataset_dir = dataset_dir
-        self.dataset_path = os.path.join(
-            self.dataset_dir, "skill_builder_data.csv"
-        )
-
+        self.dataset_path = "processed_dataverse_data.csv"
         self.q_seqs, self.r_seqs, self.q_list, self.u_list, self.q2idx, self.u2idx = self.preprocess()
 
-        self.num_u = self.u_list.shape[0]
-        self.num_q = self.q_list.shape[0]
+        self.num_u = self.u_list.shape[0]  # 사용자 수
+        self.num_q = self.q_list.shape[0]  # 문제 수
 
         if seq_len:
             self.q_seqs, self.r_seqs = match_seq_len(self.q_seqs, self.r_seqs, seq_len)
@@ -57,20 +41,19 @@ class Preprocessor(Dataset):
 
     def preprocess(self):
         print("Loading data from:", self.dataset_path)
-        df = pd.read_csv(self.dataset_path, encoding='unicode_escape', low_memory=False)
+        df = pd.read_csv(self.dataset_path)
         print("Initial data shape:", df.shape)
         
-        df = df.dropna(subset=["skill_name"])
-        print("After dropping NA:", df.shape)
-        
-        df = df.drop_duplicates(subset=["order_id", "skill_name"])
-        print("After dropping duplicates:", df.shape)
-        
-        df = df.sort_values(by=["order_id"])
+        # 정렬 (시간순)
+        df = df.sort_values(by=["user_id", "time"])
         print("Data columns:", df.columns.tolist())
 
+        # 사용자 수 제한 해제 (전체 데이터 사용)
+        unique_users = df["user_id"].unique()
+        print(f"Using all {len(unique_users)} users for full training.")
+
         u_list = np.unique(df["user_id"].values)
-        q_list = np.unique(df["skill_name"].values)
+        q_list = np.unique(df["item_id"].values)
 
         u2idx = {u: idx for idx, u in enumerate(u_list)}
         q2idx = {q: idx for idx, q in enumerate(q_list)}
@@ -81,7 +64,7 @@ class Preprocessor(Dataset):
         for u in u_list:
             df_u = df[df["user_id"] == u]
 
-            q_seq = np.array([q2idx[q] for q in df_u["skill_name"]])
+            q_seq = np.array([q2idx[q] for q in df_u["item_id"]])
             r_seq = df_u["correct"].values
 
             q_seqs.append(q_seq)
@@ -148,14 +131,14 @@ from torch.nn.init import kaiming_normal_
 from torch.nn.functional import binary_cross_entropy
 from sklearn import metrics
 from visualization import visualize_attention_patterns, plot_learning_progress, analyze_skill_mastery
-from visualization_skillbuilder import visualize_skillbuilder_attention_patterns
-from visualization_skillbuilder_enhanced import visualize_skillbuilder_attention_patterns_enhanced
+from visualization_global import visualize_global_attention_patterns
 from visualization_global_graph import visualize_global_relationship_graph
+from visualization_global_enhanced import visualize_global_attention_patterns_enhanced
 
 class SAKT(Module):
     def __init__(self, num_q, n, d, num_attn_heads, dropout):
         super().__init__()
-        self.num_q = num_q # 개념(SKILL)의 개수
+        self.num_q = num_q # 문제의 개수
         self.n = n # 시퀀스 길이
         self.d = d # 임베딩 차원
         self.num_attn_heads = num_attn_heads # head 개수
@@ -220,6 +203,8 @@ class SAKT(Module):
 
         return p, attn_weights
 
+
+
     def train_model(self, train_loader, test_loader, num_epochs, opt):
         from tqdm import tqdm
         max_auc = 0
@@ -230,7 +215,7 @@ class SAKT(Module):
             loss_mean = []
 
             print(f"Epoch {i} training...")
-            for data in tqdm(train_loader, desc=f"Epoch {i}"):
+            for batch_idx, data in enumerate(tqdm(train_loader, desc=f"Epoch {i}")):
                 q, r, qshft, rshft, m = data
                 
                 # 데이터를 GPU로 이동
@@ -250,6 +235,10 @@ class SAKT(Module):
                 opt.step()
 
                 loss_mean.append(loss.detach().cpu().numpy())
+
+                # 미니배치별 로그 출력
+                if batch_idx % 10 == 0:
+                    print(f"  [Epoch {i} | Batch {batch_idx}] Loss: {loss.item():.4f}")
 
             with torch.no_grad():
                 for data in test_loader:
@@ -281,22 +270,22 @@ class SAKT(Module):
                     if i == num_epochs:
                         try:
                             # 기존 전체 데이터 기반 Attention 패턴 시각화 (히트맵)
-                            att_fig, basic_attention_matrix, original_attention_matrix, problem_labels = visualize_skillbuilder_attention_patterns(self, dataset, return_matrix=True)
-                            att_fig.savefig('attention_heatmap_global_dkt_old_basic.png', bbox_inches='tight', dpi=300)
+                            att_fig = visualize_global_attention_patterns(self, dataset)
+                            att_fig.savefig('attention_heatmap_global_dkt_old_slam_basic.png', bbox_inches='tight', dpi=300)
                             print("Basic global attention visualization saved")
                             
                             # 개선된 전체 데이터 기반 Attention 패턴 시각화
-                            enhanced_fig, original_matrix, normalized_matrix = visualize_skillbuilder_attention_patterns_enhanced(self, dataset, basic_matrix=basic_attention_matrix, original_matrix=original_attention_matrix, problem_names=problem_labels)
-                            enhanced_fig.savefig('attention_heatmap_global_dkt_old_enhanced.png', bbox_inches='tight', dpi=300)
+                            enhanced_fig, original_matrix, normalized_matrix = visualize_global_attention_patterns_enhanced(self, dataset)
+                            enhanced_fig.savefig('attention_heatmap_global_dkt_old_slam_enhanced.png', bbox_inches='tight', dpi=300)
                             print("Enhanced global attention visualization saved")
                             
                             # 전체 데이터 기반 관계 그래프
                             graph_fig = visualize_global_relationship_graph(self, dataset)
-                            graph_fig.savefig('attention_graph_global_dkt_old.png', bbox_inches='tight', dpi=300)
+                            graph_fig.savefig('attention_graph_global_dkt_old_slam.png', bbox_inches='tight', dpi=300)
                             print("Global relationship graph saved")
                             
                             # 개선된 결과 요약
-                            print(f"\n=== DKT-Old 개선된 영향도 분석 결과 ===")
+                            print(f"\n=== DKT-Old-SLAM 개선된 영향도 분석 결과 ===")
                             print(f"원본 영향도 범위: {original_matrix.min():.6f} ~ {original_matrix.max():.6f}")
                             print(f"평균 영향도: {original_matrix.mean():.6f}")
                             print(f"표준편차: {original_matrix.std():.6f}")
@@ -308,22 +297,18 @@ class SAKT(Module):
                         
                         # 기존 시각화들도 유지
                         att_fig1, att_fig2 = visualize_attention_patterns(self, dataset)
-                        att_fig1.savefig('attention_heatmap_dkt_old.png')
-                        att_fig2.savefig('attention_graph_dkt_old.png')
-                        
-                        # 학습 진행 상황과 스킬 숙련도는 일단 생략
-                        # prog_fig = plot_learning_progress(self, dataset)
-                        # prog_fig.savefig('learning_progress_dkt_old.png')
-                        
-                        # skill_fig = analyze_skill_mastery(self, dataset)
-                        # skill_fig.savefig('skill_mastery_dkt_old.png')
+                        att_fig1.savefig('attention_heatmap_dkt_old_slam.png')
+                        att_fig2.savefig('attention_graph_dkt_old_slam.png')
 
+# 데이터 로드 및 모델 학습
+print("Loading dataset...")
 dataset = Preprocessor(seq_len=100)
 
 print(f"Total number of sequences: {len(dataset)}")
 print(f"Number of unique problems: {dataset.num_q}")
 print(f"Number of unique students: {dataset.num_u}")
 
+# Train/Test 분할 (80/20)
 train_size = int(len(dataset) * 0.8)
 test_size = len(dataset) - train_size
 
@@ -331,6 +316,7 @@ train_dataset, test_dataset = random_split(
     dataset, [train_size, test_size]
 )
 
+# 데이터 로더 설정
 train_loader = DataLoader(
     train_dataset, batch_size=256, shuffle=True,
     collate_fn=collate_fn
@@ -340,8 +326,9 @@ test_loader = DataLoader(
     collate_fn=collate_fn
 )
 
-batch_size = 512  # MPS용 배치 크기 증가
-num_epochs = 1  # MPS 테스트를 위해 1로 설정
+# 하이퍼파라미터 설정
+batch_size = 512  # GPU 메모리에 맞게 증가
+num_epochs = 1  # 테스트용 1 에포크
 learning_rate = 0.001
 
 # CPU 전용 모드 (안정성 우선)
@@ -349,9 +336,42 @@ device = torch.device("cpu")
 print("⚡ CPU 전용 모드로 실행됨 (안정성 우선)")
 print(f"사용 디바이스: {device}")
 
+# 모델 초기화 및 학습
+print("Initializing model...")
 model = SAKT(dataset.num_q, n=100, d=100, num_attn_heads=5, dropout=0.2).to(device)
 opt = Adam(model.parameters(), learning_rate)
 
+print("Starting training...")
 model.train_model(
     train_loader, test_loader, num_epochs, opt
 )
+
+# 학습 완료 후 시각화
+print("Training completed. Starting visualization...")
+
+# visualization 모듈들 import
+from visualization_slam import visualize_slam_attention_patterns
+from visualization_slam_enhanced import visualize_slam_attention_patterns_enhanced
+from visualization_global_graph import visualize_global_relationship_graph
+
+# 기존 전체 데이터 기반 Attention 패턴 시각화 (히트맵)
+att_fig, basic_attention_matrix, original_attention_matrix, problem_labels = visualize_slam_attention_patterns(model, dataset, return_matrix=True)
+att_fig.savefig('attention_heatmap_global_dkt_old_slam_basic.png', bbox_inches='tight', dpi=300)
+print("Basic global attention visualization saved")
+
+# 개선된 전체 데이터 기반 Attention 패턴 시각화 (Basic 매트릭스 사용)
+try:
+    enhanced_fig, original_matrix, normalized_matrix = visualize_slam_attention_patterns_enhanced(model, dataset, basic_matrix=basic_attention_matrix, original_matrix=original_attention_matrix, problem_names=problem_labels)
+    enhanced_fig.savefig('attention_heatmap_global_dkt_old_slam_enhanced.png', bbox_inches='tight', dpi=300)
+    print("Enhanced global attention visualization saved")
+except Exception as e:
+    print(f"Enhanced visualization error: {e}")
+    import traceback
+    traceback.print_exc()
+
+# 전체 데이터 기반 관계 그래프 시각화
+graph_fig = visualize_global_relationship_graph(model, dataset)
+graph_fig.savefig('attention_graph_global_dkt_old_slam.png', bbox_inches='tight', dpi=300)
+print("Global relationship graph saved")
+
+print("All visualizations completed!")

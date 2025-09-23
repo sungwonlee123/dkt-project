@@ -1,0 +1,16 @@
+{
+  "total_records": 2622957,
+  "unique_users": 2593,
+  "unique_items": 5509,
+  "avg_correct_rate": 0.12611262784712063,
+  "features": {
+    "user_id": "학습자 식별자",
+    "item_id": "문제 식별자 (token_format)",
+    "correct": "정답 여부 (0 또는 1)",
+    "difficulty": "문제 난이도 (Z-score)",
+    "cumulative_attempts": "누적 시도 횟수",
+    "running_accuracy": "현재까지의 정답률",
+    "time": "타임스탬프",
+    "days_in_course": "과정 진행 일수"
+  }
+}

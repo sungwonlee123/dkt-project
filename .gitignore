@@ -1,9 +1,26 @@
-# Data files
+# Data files (large datasets)
 skill_builder_data.csv
 EdNet-KT1.zip
 ednet_merged.csv
 aihub/
-processed_dkt_data.csv  # 새로 생성된 전처리 데이터도 제외
+processed_dkt_data.csv
+processed_dataverse_data.csv
+dataverse_files.zip
+dataverse_files/
+data/
+*.zip
+*.tar.gz
+
+# Generated visualization files
+*.png
+attention_*.png
+attention_graph_*.png
+attention_heatmap_*.png
+
+# Large model files
+*.pth
+*.pt
+*.model
 
 # Python
 __pycache__/

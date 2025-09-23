@@ -53,9 +53,34 @@ def visualize_attention_patterns(model, dataset, student_id=None, sequence_lengt
         has_attempts = hasattr(dataset, 'a_seqs')
         has_time = hasattr(dataset, 't_seqs')
         
-        d_seq = dataset.d_seqs[best_seq_idx][valid_indices][:sequence_length] if has_diff else np.zeros_like(q_seq)
-        a_seq = dataset.a_seqs[best_seq_idx][valid_indices][:sequence_length] if has_attempts else np.zeros_like(q_seq)
-        t_seq = dataset.t_seqs[best_seq_idx][valid_indices][:sequence_length] if has_time else np.zeros_like(q_seq)
+        # 시퀀스 길이에 맞춰서 안전하게 인덱싱
+        if has_diff:
+            d_seq_full = dataset.d_seqs[best_seq_idx]
+            try:
+                d_seq = d_seq_full[valid_indices][:sequence_length]
+            except IndexError:
+                # 길이가 맞지 않으면 0으로 채움
+                d_seq = np.zeros_like(q_seq)
+        else:
+            d_seq = np.zeros_like(q_seq)
+            
+        if has_attempts:
+            a_seq_full = dataset.a_seqs[best_seq_idx]
+            try:
+                a_seq = a_seq_full[valid_indices][:sequence_length]
+            except IndexError:
+                a_seq = np.zeros_like(q_seq)
+        else:
+            a_seq = np.zeros_like(q_seq)
+            
+        if has_time:
+            t_seq_full = dataset.t_seqs[best_seq_idx]
+            try:
+                t_seq = t_seq_full[valid_indices][:sequence_length]
+            except IndexError:
+                t_seq = np.zeros_like(q_seq)
+        else:
+            t_seq = np.zeros_like(q_seq)
         
         # 문제 ID를 실제 문제 이름으로 변환
         idx2q = {idx: q for q, idx in dataset.q2idx.items()}
