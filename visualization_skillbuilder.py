@@ -7,7 +7,7 @@ from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
 import inspect
 
-def visualize_skillbuilder_attention_patterns(model, dataset, sequence_length=100, return_matrix=False):
+def visualize_skillbuilder_attention_patterns(model, dataset, sequence_length=100, return_matrix=False, model_name='skillbuilder'):
     """
     Skill Builder 데이터셋 전용 Attention 패턴 시각화 함수 (DKT Old, DKT2)
     Args:
@@ -149,28 +149,9 @@ def visualize_skillbuilder_attention_patterns(model, dataset, sequence_length=10
         r = r.long()
         
         # 모델의 forward 메소드 시그니처를 동적으로 확인하여 적절한 파라미터로 호출
-        try:
-            # forward 메소드의 파라미터 확인
-            forward_signature = inspect.signature(model.forward)
-            param_names = list(forward_signature.parameters.keys())
-            
-            # Skill Builder 전용: DKT Old (3개) vs DKT2 (7개) 구분
-            if len(param_names) >= 7:  # DKT2: (q, r, qry, d_diff, s_diff, att, time)
-                # None 체크 및 기본값 할당
-                d = d if d is not None else torch.zeros_like(q, dtype=torch.float32)
-                s = s if s is not None else torch.zeros_like(q, dtype=torch.float32)
-                a = a if a is not None else torch.zeros_like(q, dtype=torch.float32)
-                t = t if t is not None else torch.zeros_like(q, dtype=torch.float32)
-                _, curr_attention = model(q, r, q, d, s, a, t)  # 올바른 순서
-            else:  # DKT Old: (q, r, qry)
-                _, curr_attention = model(q, r, q)
-                
-        except (TypeError, RuntimeError) as e:
-            # 에러 발생시 기본 3-parameter로 fallback
-            try:
-                _, curr_attention = model(q, r, q)
-            except Exception as e2:
-                continue
+        # 완전히 통일된 시각화: 모든 모델을 동일하게 처리
+        # 모델 구분 없이 3개 파라미터로만 호출
+        _, curr_attention = model(q, r, q)
         
         curr_attention = curr_attention[0].cpu().detach().numpy() 
         
@@ -205,10 +186,15 @@ def visualize_skillbuilder_attention_patterns(model, dataset, sequence_length=10
     valid_mask = problem_attention_count > 0
     attention_matrix[valid_mask] = problem_attention_sum[valid_mask] / problem_attention_count[valid_mask]
     
-    # 문제 빈도 계산
+    # 문제 빈도 계산 (실제 출현 빈도)
     problem_freq = {}
     for i in range(dataset.num_q):
-        problem_freq[i] = np.sum(problem_attention_count[i, :])
+        # 실제 문제 출현 빈도 계산
+        freq = 0
+        for j in range(len(dataset.q_seqs)):
+            if j < len(dataset.q_seqs):
+                freq += np.sum(np.array(dataset.q_seqs[j]) == i)
+        problem_freq[i] = freq
     
     print(f"\nSkill Builder 데이터셋 어텐션 값 분석:")
     print(f"최솟값: {attention_matrix.min():.6f}")
@@ -392,6 +378,37 @@ def visualize_skillbuilder_attention_patterns(model, dataset, sequence_length=10
     plt.tight_layout()
     
     fig = plt.gcf()
+    
+    # 정규화 전 히트맵도 저장
+    plt.figure(figsize=(15, 12))
+    
+    # 정규화 전 원본 히트맵 (실제 어텐션 값)
+    sns.heatmap(top_original_attention_matrix, 
+                annot=True, 
+                fmt='.3f',
+                cmap='YlOrRd',
+                xticklabels=labels,
+                yticklabels=labels,
+                cbar_kws={'label': 'Attention 가중치 (정규화 전)'},
+                square=True)
+    
+    plt.title('Skill Builder 데이터셋: 정규화 전 원본 어텐션 히트맵', pad=20, fontsize=16)
+    plt.xlabel('이전에 푼 문제', labelpad=10)
+    plt.ylabel('현재 풀고 있는 문제', labelpad=10)
+    
+    # X축 라벨 대각선으로 회전
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    
+    plt.tight_layout()
+    
+    # 정규화 전 히트맵 저장 (모델별 구분)
+    # model_name은 함수 매개변수로 전달받음
+    
+    plt.savefig(f'attention_heatmap_global_{model_name}_nonnormalized.png', bbox_inches='tight', dpi=300)
+    plt.close()
+    
+    print("Non-normalized global attention visualization saved")
     
     if return_matrix:
         # Enhanced 시각화를 위해 정규화된 매트릭스와 원본 매트릭스 모두 반환

@@ -281,7 +281,7 @@ class SAKT(Module):
                     if i == num_epochs:
                         try:
                             # 기존 전체 데이터 기반 Attention 패턴 시각화 (히트맵)
-                            att_fig, basic_attention_matrix, original_attention_matrix, problem_labels = visualize_skillbuilder_attention_patterns(self, dataset, return_matrix=True)
+                            att_fig, basic_attention_matrix, original_attention_matrix, problem_labels = visualize_skillbuilder_attention_patterns(self, dataset, return_matrix=True, model_name='dkt_old')
                             att_fig.savefig('attention_heatmap_global_dkt_old_basic.png', bbox_inches='tight', dpi=300)
                             print("Basic global attention visualization saved")
                             
@@ -341,7 +341,7 @@ test_loader = DataLoader(
 )
 
 batch_size = 512  # MPS용 배치 크기 증가
-num_epochs = 1  # MPS 테스트를 위해 1로 설정
+num_epochs = 30  # 전체 학습으로 복구
 learning_rate = 0.001
 
 # CPU 전용 모드 (안정성 우선)

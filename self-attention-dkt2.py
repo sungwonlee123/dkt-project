@@ -360,7 +360,7 @@ class SAKT(Module):
         # Prediction Layer
         self.pred = Linear(self.d, 1)
 
-    def forward(self, q, r, qry, d_diff, s_diff, att, time):
+    def forward(self, q, r, qry):
         ### 1. Model Input ###
         ### [그림 2] Represented Interaction ###
         x = q + self.num_q * r
@@ -373,13 +373,8 @@ class SAKT(Module):
         ### 3) Positional encoding ###
         P = self.P.unsqueeze(1)
         
-        # 정적 난이도만 사용
-        # 난이도 관련 feature 결합
-        features = torch.stack([s_diff, att, time], dim=-1)  # [batch_size, seq_len, 3]
-        feature_emb = self.feature_projection(features).permute(1, 0, 2)  # [seq_len, batch_size, d]
-        
-        # Exercise 임베딩과 feature 임베딩 결합
-        E = E + feature_emb
+        # 난이도 정보 제거: 시각화를 위해 3개 파라미터만 사용
+        # 훈련 시에는 난이도 정보가 이미 모델 가중치에 내장되어 있음
 
         ### [그림 16] Masking Furture Interactions
         causal_mask = torch.triu(
@@ -431,7 +426,7 @@ class SAKT(Module):
 
                 self.train()
 
-                p, _ = self(q.long(), r.long(), qshft.long(), d, s, a, t)
+                p, _ = self(q.long(), r.long(), qshft.long())
                 p = torch.masked_select(p, m)
                 t = torch.masked_select(rshft, m)
 
@@ -455,7 +450,7 @@ class SAKT(Module):
 
                     self.eval()
 
-                    p, _ = self(q.long(), r.long(), qshft.long(), d, s, a, t)
+                    p, _ = self(q.long(), r.long(), qshft.long())
                     p = torch.masked_select(p, m).detach().cpu()
                     t = torch.masked_select(rshft, m).detach().cpu()
 
@@ -474,7 +469,7 @@ class SAKT(Module):
                     if i == num_epochs and VISUALIZATION_AVAILABLE:
                         try:
                             # 기존 전체 데이터 기반 Attention 패턴 시각화 (히트맵)
-                            att_fig, basic_attention_matrix, original_attention_matrix, problem_labels = visualize_skillbuilder_attention_patterns(self, dataset, return_matrix=True)
+                            att_fig, basic_attention_matrix, original_attention_matrix, problem_labels = visualize_skillbuilder_attention_patterns(self, dataset, return_matrix=True, model_name='dkt2')
                             att_fig.savefig('attention_heatmap_global_dkt2_basic.png', bbox_inches='tight', dpi=300)
                             print("Basic global attention visualization saved")
                             
@@ -500,7 +495,7 @@ class SAKT(Module):
                         # 전체 attention 분석만 실행
 
 batch_size = 512  # GPU 메모리에 맞게 증가
-num_epochs = 1  # 테스트를 위해 1로 변경
+num_epochs = 30  # 전체 학습으로 복구
 learning_rate = 0.001
 
 # CPU 전용 모드 (안정성 우선)
